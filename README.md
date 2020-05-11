@@ -7,4 +7,4 @@ Main project is located here: https://github.com/ledger/ledger
 
 The only purpose this repo serves is to provide a location for Windows binaries.
 
-This repo is also currently supplies the Windows binaries for the [Chocolatey](https://chocolatey.org/packages/ledger) package.
+This repo also currently supplies the Windows binaries for the [Chocolatey](https://chocolatey.org/packages/ledger) package.

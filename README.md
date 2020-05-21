@@ -1,6 +1,8 @@
 # Windows Ledger Binaries
 A more automated windows build for the Ledger CLI.
 
+Ledger homepage and documentation located [here](https://www.ledger-cli.org/).
+
 Ledger is a double-entry accounting system with a command-line reporting interface.
 
 Main project is located here: https://github.com/ledger/ledger

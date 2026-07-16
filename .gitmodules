@@ -1,9 +1,3 @@
 [submodule "ledger"]
 	path = ledger
 	url = https://github.com/ledger/ledger
-[submodule "mpir"]
-	path = mpir
-	url = https://github.com/BrianGladman/mpir.git
-[submodule "mpfr"]
-	path = mpfr
-	url = https://github.com/BrianGladman/mpfr.git

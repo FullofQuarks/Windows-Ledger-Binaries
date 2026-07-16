@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "windows-ledger-binaries",
+  "version-string": "3.4.1",
+  "description": "Windows build of the Ledger CLI",
+  "supports": "windows & x64",
+  "builtin-baseline": "cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3",
+  "dependencies": {
+    "gmp",
+    "mpfr",
+    "utfcpp",
+    "boost-date-time",
+    "boost-filesystem",
+    "boost-iostreams",
+    "boost-regex",
+    "boost-test",
+    "boost-nowide"
+  }
+}

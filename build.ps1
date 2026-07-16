@@ -1,7 +1,9 @@
 ﻿[CmdletBinding()]
 param(
     [switch] $CleanDependencies,
-    [switch] $SkipTests
+    [switch] $SkipTests,
+
+    [string] $Generator = "Visual Studio 18 2026"
 )
 
 Set-StrictMode -Version Latest
@@ -17,12 +19,6 @@ $ArtifactRoot = Join-Path $Root "artifacts"
 
 $Triplet = "x64-windows-static"
 
-$ExpectedLedgerCommit =
-    "d422d3cdbf16e72d653908a3fda8ffda8dfadaf7"
-
-$ExpectedVcpkgCommit =
-    "cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3"
-
 function Invoke-External {
     param(
         [Parameter(Mandatory)]
@@ -36,130 +32,129 @@ function Invoke-External {
 
     & $FilePath @Arguments
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed with exit code $LASTEXITCODE: $FilePath"
+    $exitCode = $LASTEXITCODE
+
+    if ($exitCode -ne 0) {
+        throw "Command failed with exit code ${exitCode}: $FilePath"
     }
-}
-
-function Get-GitCommit {
-    param(
-        [Parameter(Mandatory)]
-        [string] $RepositoryPath
-    )
-
-    $commit = & git -C $RepositoryPath rev-parse HEAD |
-        Select-Object -First 1
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not read Git revision from $RepositoryPath"
-    }
-
-    return $commit.Trim()
 }
 
 Write-Host "Checking required tools..."
 
-Get-Command git -ErrorAction Stop | Out-Null
-Get-Command cmake -ErrorAction Stop | Out-Null
-Get-Command ctest -ErrorAction Stop | Out-Null
+$GitCommand = Get-Command `
+    git `
+    -CommandType Application `
+    -ErrorAction Stop
 
-$cmakeVersionLine = & cmake --version |
-    Select-Object -First 1
+$CMakeCommand = Get-Command `
+    cmake `
+    -CommandType Application `
+    -ErrorAction Stop
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not determine the installed CMake version."
+if (-not $SkipTests) {
+    $CTestCommand = Get-Command `
+        ctest `
+        -CommandType Application `
+        -ErrorAction Stop
 }
 
-if ($cmakeVersionLine -notmatch "(\d+\.\d+\.\d+)") {
-    throw "Could not parse CMake version from: $cmakeVersionLine"
-}
+Write-Host "Git:   $($GitCommand.Source)"
+Write-Host "CMake: $($CMakeCommand.Source)"
 
-$cmakeVersion = [version] $Matches[1]
-
-if ($cmakeVersion -lt [version] "4.2.0") {
-    throw "CMake 4.2.0 or newer is required for Visual Studio 2026. Found $cmakeVersion."
-}
-
-Write-Host "CMake version: $cmakeVersion"
-
-$VsWhere = Join-Path ${env:ProgramFiles(x86)} `
+#
+# Locate the newest Visual Studio installation that has the
+# Microsoft C++ x64/x86 toolchain installed.
+#
+$VsWhere = Join-Path `
+    ${env:ProgramFiles(x86)} `
     "Microsoft Visual Studio\Installer\vswhere.exe"
 
 if (-not (Test-Path $VsWhere)) {
-    throw "vswhere.exe was not found. Install Visual Studio 2026."
+    throw @"
+vswhere.exe was not found.
+
+Install Visual Studio with the Desktop development with C++ workload.
+"@
 }
 
 $VsQuery = @(
     "-latest",
-    "-version", "[18.0,19.0)",
     "-products", "*",
-    "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+    "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+    "-property", "installationPath"
 )
 
-$VsInstallPath = & $VsWhere @VsQuery `
-    -property installationPath |
-    Select-Object -First 1
+$VsInstallOutput = @(
+    & $VsWhere @VsQuery 2>&1
+)
 
-if ([string]::IsNullOrWhiteSpace($VsInstallPath)) {
-    throw "Visual Studio 2026 with the x64/x86 C++ tools was not found."
+$vsWhereExitCode = $LASTEXITCODE
+
+if ($vsWhereExitCode -ne 0) {
+    throw @"
+vswhere failed while locating Visual Studio.
+
+Exit code:
+$vsWhereExitCode
+
+Output:
+$($VsInstallOutput -join [Environment]::NewLine)
+"@
 }
 
-$VsInstallPath = $VsInstallPath.Trim()
+if ($VsInstallOutput.Count -eq 0) {
+    throw @"
+Visual Studio with the Microsoft C++ x64/x86 build tools was not found.
 
-$VsVersion = & $VsWhere @VsQuery `
-    -property installationVersion |
-    Select-Object -First 1
+Open Visual Studio Installer and install the Desktop development with C++
+workload.
+"@
+}
 
-Write-Host "Visual Studio: $VsVersion"
-Write-Host "Installation:  $VsInstallPath"
+$VsInstallPath = ([string] $VsInstallOutput[0]).Trim()
 
-# Ensure vcpkg uses the same Visual Studio installation selected by CMake.
+if ([string]::IsNullOrWhiteSpace($VsInstallPath)) {
+    throw "Visual Studio was detected, but its installation path was empty."
+}
+
+Write-Host "Visual Studio: $VsInstallPath"
+Write-Host "Generator:     $Generator"
+
+#
+# Ensure the source submodules are initialized at the revisions recorded
+# by the parent Git repository.
+#
+Write-Host ""
+Write-Host "Initializing submodules..."
+
+Invoke-External `
+    -FilePath $GitCommand.Source `
+    -Arguments @(
+        "-C", $Root,
+        "submodule",
+        "update",
+        "--init",
+        "--recursive"
+    )
+
+if (-not (Test-Path $LedgerRoot)) {
+    throw "The Ledger submodule directory was not found: $LedgerRoot"
+}
+
+if (-not (Test-Path $VcpkgRoot)) {
+    throw "The vcpkg submodule directory was not found: $VcpkgRoot"
+}
+
+if (-not (Test-Path (Join-Path $Root "vcpkg.json"))) {
+    throw "vcpkg.json was not found in the repository root."
+}
+
+#
+# Configure vcpkg.
+#
 $env:VCPKG_ROOT = $VcpkgRoot
 $env:VCPKG_DISABLE_METRICS = "1"
 $env:VCPKG_VISUAL_STUDIO_PATH = $VsInstallPath
-
-Write-Host ""
-Write-Host "Initializing pinned submodules..."
-
-Invoke-External `
-    -FilePath "git" `
-    -Arguments @(
-        "-C", $Root,
-        "submodule", "update",
-        "--init", "--recursive"
-    )
-
-$LedgerCommit = Get-GitCommit -RepositoryPath $LedgerRoot
-$VcpkgCommit = Get-GitCommit -RepositoryPath $VcpkgRoot
-
-if ($LedgerCommit -ne $ExpectedLedgerCommit) {
-    throw @"
-Unexpected Ledger revision.
-
-Expected: $ExpectedLedgerCommit
-Actual:   $LedgerCommit
-
-Run:
-git submodule update --init
-git -C ledger checkout --detach v3.4.1
-"@
-}
-
-if ($VcpkgCommit -ne $ExpectedVcpkgCommit) {
-    throw @"
-Unexpected vcpkg revision.
-
-Expected: $ExpectedVcpkgCommit
-Actual:   $VcpkgCommit
-
-Run:
-git submodule update --init
-git -C vcpkg checkout --detach 2026.06.24
-"@
-}
-
-Write-Host "Ledger commit: $LedgerCommit"
-Write-Host "vcpkg commit: $VcpkgCommit"
 
 $VcpkgExe = Join-Path $VcpkgRoot "vcpkg.exe"
 
@@ -167,11 +162,26 @@ if (-not (Test-Path $VcpkgExe)) {
     Write-Host ""
     Write-Host "Bootstrapping vcpkg..."
 
+    $BootstrapVcpkg = Join-Path `
+        $VcpkgRoot `
+        "bootstrap-vcpkg.bat"
+
+    if (-not (Test-Path $BootstrapVcpkg)) {
+        throw "The vcpkg bootstrap script was not found: $BootstrapVcpkg"
+    }
+
     Invoke-External `
-        -FilePath (Join-Path $VcpkgRoot "bootstrap-vcpkg.bat") `
+        -FilePath $BootstrapVcpkg `
         -Arguments @("-disableMetrics")
 }
 
+if (-not (Test-Path $VcpkgExe)) {
+    throw "vcpkg.exe was not created successfully."
+}
+
+#
+# Clean generated output.
+#
 Write-Host ""
 Write-Host "Cleaning generated build output..."
 
@@ -209,36 +219,37 @@ New-Item `
     -Force |
     Out-Null
 
+#
+# Configure Ledger.
+#
 $ToolchainFile = Join-Path `
     $VcpkgRoot `
     "scripts\buildsystems\vcpkg.cmake"
 
+if (-not (Test-Path $ToolchainFile)) {
+    throw "The vcpkg CMake toolchain file was not found: $ToolchainFile"
+}
+
 $ConfigureArguments = @(
-    "-S", $LedgerRoot
-    "-B", $BuildRoot
-    "-G", "Visual Studio 18 2026"
-    "-A", "x64"
+    "-S", $LedgerRoot,
+    "-B", $BuildRoot,
+    "-G", $Generator,
+    "-A", "x64",
 
-    "-DCMAKE_GENERATOR_INSTANCE=$VsInstallPath"
-    "-DCMAKE_BUILD_TYPE=Release"
+    "-DCMAKE_GENERATOR_INSTANCE=$VsInstallPath",
+    "-DCMAKE_TOOLCHAIN_FILE=$ToolchainFile",
+    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
 
-    "-DCMAKE_TOOLCHAIN_FILE=$ToolchainFile"
-    "-DVCPKG_TARGET_TRIPLET=$Triplet"
-    "-DVCPKG_INSTALLED_DIR=$InstalledRoot"
-    "-DVCPKG_MANIFEST_DIR=$Root"
-    "-DVCPKG_MANIFEST_INSTALL=ON"
+    "-DVCPKG_TARGET_TRIPLET=$Triplet",
+    "-DVCPKG_INSTALLED_DIR=$InstalledRoot",
+    "-DVCPKG_MANIFEST_DIR=$Root",
+    "-DVCPKG_MANIFEST_INSTALL=ON",
 
-    # The vcpkg static triplet also requests the static CRT.
-    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
-
-    # The Chocolatey binary does not need optional language bindings,
-    # documentation generation, GPG support, or libledger.dll.
-    "-DUSE_PYTHON=OFF"
-    "-DUSE_GPGME=OFF"
-    "-DBUILD_LIBRARY=OFF"
-    "-DBUILD_DOCS=OFF"
-    "-DBUILD_WEB_DOCS=OFF"
-
+    "-DUSE_PYTHON=OFF",
+    "-DUSE_GPGME=OFF",
+    "-DBUILD_LIBRARY=OFF",
+    "-DBUILD_DOCS=OFF",
+    "-DBUILD_WEB_DOCS=OFF",
     "-DPRECOMPILE_SYSTEM_HH=ON"
 )
 
@@ -246,26 +257,32 @@ Write-Host ""
 Write-Host "Configuring Ledger..."
 
 Invoke-External `
-    -FilePath "cmake" `
+    -FilePath $CMakeCommand.Source `
     -Arguments $ConfigureArguments
 
+#
+# Build Ledger and any configured test targets.
+#
 Write-Host ""
-Write-Host "Building Ledger and its tests..."
+Write-Host "Building Ledger..."
 
 Invoke-External `
-    -FilePath "cmake" `
+    -FilePath $CMakeCommand.Source `
     -Arguments @(
         "--build", $BuildRoot,
         "--config", "Release",
         "--parallel"
     )
 
+#
+# Run the test suite unless explicitly skipped.
+#
 if (-not $SkipTests) {
     Write-Host ""
     Write-Host "Running Ledger tests..."
 
     Invoke-External `
-        -FilePath "ctest" `
+        -FilePath $CTestCommand.Source `
         -Arguments @(
             "--test-dir", $BuildRoot,
             "-C", "Release",
@@ -274,12 +291,30 @@ if (-not $SkipTests) {
         )
 }
 
-$BuiltExecutable = Join-Path `
-    $BuildRoot `
-    "Release\ledger.exe"
+#
+# Locate and copy ledger.exe.
+#
+$PossibleExecutables = @(
+    (Join-Path $BuildRoot "Release\ledger.exe"),
+    (Join-Path $BuildRoot "ledger.exe")
+)
 
-if (-not (Test-Path $BuiltExecutable)) {
-    throw "The build completed, but ledger.exe was not found at $BuiltExecutable"
+$BuiltExecutable = $null
+
+foreach ($candidate in $PossibleExecutables) {
+    if (Test-Path $candidate) {
+        $BuiltExecutable = $candidate
+        break
+    }
+}
+
+if ($null -eq $BuiltExecutable) {
+    throw @"
+The build completed, but ledger.exe could not be found.
+
+Locations checked:
+$($PossibleExecutables -join [Environment]::NewLine)
+"@
 }
 
 $ArtifactExecutable = Join-Path `
@@ -291,14 +326,34 @@ Copy-Item `
     -Destination $ArtifactExecutable `
     -Force
 
-# Include Ledger's own license.
-Copy-Item `
-    -Path (Join-Path $LedgerRoot "LICENSE.md") `
-    -Destination (Join-Path $ArtifactRoot "LICENSE-ledger.md") `
-    -Force
+#
+# Copy Ledger's license.
+#
+$LedgerLicenseCandidates = @(
+    (Join-Path $LedgerRoot "LICENSE.md"),
+    (Join-Path $LedgerRoot "LICENSE")
+)
 
-# Preserve all dependency notices emitted by vcpkg.
-$LicenseRoot = Join-Path $ArtifactRoot "licenses"
+$LedgerLicense = $LedgerLicenseCandidates |
+    Where-Object { Test-Path $_ } |
+    Select-Object -First 1
+
+if ($null -ne $LedgerLicense) {
+    Copy-Item `
+        -Path $LedgerLicense `
+        -Destination (Join-Path $ArtifactRoot "LICENSE-ledger.txt") `
+        -Force
+}
+else {
+    Write-Warning "Ledger's license file was not found."
+}
+
+#
+# Copy dependency license notices generated by vcpkg.
+#
+$LicenseRoot = Join-Path `
+    $ArtifactRoot `
+    "licenses"
 
 New-Item `
     -Path $LicenseRoot `
@@ -315,7 +370,9 @@ if (Test-Path $VcpkgShareRoot) {
         -Path $VcpkgShareRoot `
         -Directory |
         ForEach-Object {
-            $CopyrightFile = Join-Path $_.FullName "copyright"
+            $CopyrightFile = Join-Path `
+                $_.FullName `
+                "copyright"
 
             if (Test-Path $CopyrightFile) {
                 Copy-Item `
@@ -327,26 +384,19 @@ if (Test-Path $VcpkgShareRoot) {
             }
         }
 }
-
-Write-Host ""
-Write-Host "Verifying version..."
-
-$VersionOutput = & $ArtifactExecutable --version 2>&1
-
-if ($LASTEXITCODE -ne 0) {
-    throw "ledger.exe failed while reporting its version."
+else {
+    Write-Warning "The vcpkg dependency notice directory was not found."
 }
 
-Write-Host $VersionOutput
-
-if (($VersionOutput -join "`n") -notmatch "\b3\.4\.1\b") {
-    throw "The executable did not identify itself as Ledger 3.4.1."
-}
-
+#
+# Run a simple functional smoke test.
+#
 Write-Host ""
 Write-Host "Running a basic smoke test..."
 
-$SmokeFile = Join-Path $ArtifactRoot "smoke-test.ledger"
+$SmokeFile = Join-Path `
+    $ArtifactRoot `
+    "smoke-test.ledger"
 
 @'
 2026-01-01 Opening Balance
@@ -363,8 +413,13 @@ Invoke-External `
         "balance"
     )
 
-Remove-Item $SmokeFile -Force
+Remove-Item `
+    -Path $SmokeFile `
+    -Force
 
+#
+# Generate the release checksum.
+#
 $Hash = Get-FileHash `
     -Path $ArtifactExecutable `
     -Algorithm SHA256

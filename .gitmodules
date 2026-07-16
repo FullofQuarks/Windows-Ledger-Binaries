@@ -7,6 +7,3 @@
 [submodule "mpfr"]
 	path = mpfr
 	url = https://github.com/BrianGladman/mpfr.git
-[submodule "boost"]
-	path = boost
-	url = https://github.com/boostorg/boost

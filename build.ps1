@@ -17,7 +17,9 @@ $BuildRoot = Join-Path $Root "build\ledger"
 $InstalledRoot = Join-Path $Root "vcpkg_installed"
 $ArtifactRoot = Join-Path $Root "artifacts"
 
-$Triplet = "x64-windows-static"
+$Triplet = "x64-windows-static-release"
+$TripletsRoot = Join-Path $Root "triplets"
+$env:VCPKG_DEFAULT_HOST_TRIPLET = $Triplet
 
 function Invoke-External {
     param(
@@ -183,7 +185,7 @@ if (-not (Test-Path $VcpkgExe)) {
 # Clean generated output.
 #
 Write-Host ""
-Write-Host "Cleaning generated build output..."
+Write-Host "Cleaning Ledger build output and artifacts..."
 
 Remove-Item `
     -Path $BuildRoot `
@@ -240,7 +242,13 @@ $ConfigureArguments = @(
     "-DCMAKE_TOOLCHAIN_FILE=$ToolchainFile",
     "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
 
+    # Ledger uses standard C++ alternative tokens such as "or".
+    # MSVC recognizes these in standards-conformance mode.
+    "-DCMAKE_CXX_FLAGS=/EHsc /permissive- /Zc:__cplusplus /DLITTLE_ENDIAN=1234 /DBIG_ENDIAN=4321 /DBYTE_ORDER=LITTLE_ENDIAN",
+
     "-DVCPKG_TARGET_TRIPLET=$Triplet",
+    "-DVCPKG_HOST_TRIPLET=$Triplet",
+    "-DVCPKG_OVERLAY_TRIPLETS=$TripletsRoot",
     "-DVCPKG_INSTALLED_DIR=$InstalledRoot",
     "-DVCPKG_MANIFEST_DIR=$Root",
     "-DVCPKG_MANIFEST_INSTALL=ON",
@@ -250,7 +258,13 @@ $ConfigureArguments = @(
     "-DBUILD_LIBRARY=OFF",
     "-DBUILD_DOCS=OFF",
     "-DBUILD_WEB_DOCS=OFF",
-    "-DPRECOMPILE_SYSTEM_HH=ON"
+    "-DPRECOMPILE_SYSTEM_HH=ON",
+
+    "-DHAVE_REALPATH=OFF",
+    "-DHAVE_GETPWUID=OFF",
+    "-DHAVE_GETPWNAM=OFF",
+    "-DHAVE_IOCTL=OFF",
+    "-DHAVE_ISATTY=OFF"
 )
 
 Write-Host ""

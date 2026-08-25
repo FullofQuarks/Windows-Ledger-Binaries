@@ -1,0 +1,59 @@
+{
+  "version": 12,
+
+  "configurePresets": [
+    {
+      "name": "windows-ucrt64-static",
+      "displayName": "Windows UCRT64 Static Release",
+      "description": "Production Windows Ledger build using MSYS2 UCRT64 with static dependencies, ICU, Readline, GPGME, and documentation",
+
+      "generator": "Ninja",
+      "binaryDir": "${fileDir}/build",
+      "installDir": "${fileDir}/stage",
+
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PROJECT_INCLUDE": "${fileDir}/build-support/windows-ucrt64-static.cmake",
+        "DISABLE_ASSERTS": true,
+        "USE_PYTHON": false,
+        "USE_GPGME": true,
+        "BUILD_LIBRARY": false,
+        "BUILD_DOCS": true,
+        "BUILD_WEB_DOCS": true,
+        "USE_DOXYGEN": true,
+        "HAVE_EDIT": false,
+        "Boost_USE_STATIC_LIBS": true,
+        "BOOST_REGEX_UNICODE_RUNS": "1",
+        "CMAKE_EXE_LINKER_FLAGS": "-static"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    {
+      "name": "windows-ucrt64-static",
+      "displayName": "Build Windows UCRT64 Static",
+      "configurePreset": "windows-ucrt64-static"
+    },
+    {
+      "name": "windows-ucrt64-docs",
+      "displayName": "Build Ledger Documentation",
+      "configurePreset": "windows-ucrt64-static",
+      "targets": [
+        "doc"
+      ]
+    }
+  ],
+
+  "testPresets": [
+    {
+      "name": "windows-ucrt64-static",
+      "displayName": "Test Windows UCRT64 Static",
+      "configurePreset": "windows-ucrt64-static",
+
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

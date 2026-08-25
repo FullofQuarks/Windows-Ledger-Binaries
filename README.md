@@ -40,20 +40,16 @@ If prompted to close the shell, reopen the **UCRT64** shell and run `pacman -Syu
 
 ```bash
 pacman -S --needed \
-  base-devel \
   git \
   groff \
-  mingw-w64-ucrt-x86_64-toolchain \
+  mingw-w64-ucrt-x86_64-gcc \
   mingw-w64-ucrt-x86_64-cmake \
-  mingw-w64-ucrt-x86_64-ninja \
-  mingw-w64-ucrt-x86_64-pkgconf \
   mingw-w64-ucrt-x86_64-boost \
   mingw-w64-ucrt-x86_64-gmp \
   mingw-w64-ucrt-x86_64-mpfr \
   mingw-w64-ucrt-x86_64-icu \
   mingw-w64-ucrt-x86_64-readline \
   mingw-w64-ucrt-x86_64-gpgme \
-  mingw-w64-ucrt-x86_64-utf8cpp \
   mingw-w64-ucrt-x86_64-python \
   mingw-w64-ucrt-x86_64-doxygen \
   mingw-w64-ucrt-x86_64-graphviz \

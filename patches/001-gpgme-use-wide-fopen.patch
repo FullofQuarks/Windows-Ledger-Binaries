@@ -1,0 +1,25 @@
+diff --git a/src/gpgme.cc b/src/gpgme.cc
+index 3eabfa9e..e65bfade 100644
+--- a/src/gpgme.cc
++++ b/src/gpgme.cc
+@@ -100,7 +100,11 @@ streambuf::pos_type data_streambuffer_t::seekoff(streambuf::off_type off,
+ }
+ 
+ FILE * decrypted_stream_t::open_file(const path& filename) {
++#ifdef _WIN32
++  FILE * f = _wfopen(filename.c_str(), L"rb");
++#else
+   FILE * f = fopen(filename.c_str(), "rb");
++#endif
+   if (!f)
+     throw_(runtime_error, _f("Could not open file: %1%") % strerror(errno));
+   return f;
+@@ -183,7 +187,7 @@ istream* decrypted_stream_t::open_stream(const path& filename) {
+     dec_d.get()->rewind();
+     return new decrypted_stream_t(dec_d);
+   }
+-  return new ifstream(filename);
++  return new ifstream(filename, std::ios::in | std::ios::binary);
+ }
+ 
+ decrypted_stream_t::decrypted_stream_t(path& filename)
